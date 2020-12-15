@@ -1,0 +1,841 @@
+<template>
+  <div id="earthChart">
+    <canvas id="earthCanvas"></canvas>
+    <div class="tipbox">提示框</div>
+  </div>
+</template>
+
+<script>
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import { getDDosstatic } from "../../network/home";
+import axios from "axios";
+import { XRWebGLLayer } from "three";
+export default {
+  name: "Earth",
+  data() {
+    return {
+      // 场景 相机 渲染器
+      camera: null,
+      scene: null,
+      renderer: null,
+      earthcontainer: null,
+      earth: null,
+      cloud: null,
+      radius: 40,
+      poinRadius: 40 * 1.05,
+      // vIndex: 0,
+      // firstBool: true,
+
+      // // 迁徙路径分段数
+      // metapNum: 150,
+      // // 迁徙路径标记分段数
+      // markingNum: 100,
+      start: [
+        // [30.4, 120.52],
+        // [39.92, 116.46],
+      ],
+      destination: [
+        // [
+        //   [38.91, -77.02],
+        //   [-37.5, 144.58],
+        // ],
+        // [
+        //   [-22.54, -43.12],
+        //   [51.3, 0.5],
+        // ],
+      ],
+      Location: [
+        // [30.4, 120.52],
+        // [39.92, 116.46],
+        // [38.91, -77.02],
+        // [-37.5, 144.58],
+        // [-22.54, -43.12],
+        // [51.3, 0.5],
+      ],
+      // myLine: {
+      //   start: [],
+      //   end: [],
+      //   tube: "",
+      //   ball: [],
+      //   ring: [],
+      //   index: null,
+      // },
+      MyLineGroup: [],
+      group: null,
+      groupBall: null,
+      posTracks: [],
+      clock: null,
+      mixer: null,
+      linegroup: [],
+      controls: null,
+      clickgroup: null,
+      DDOSdata: [],
+    };
+  },
+  created() {
+    this.getDDosstaticfun();
+  },
+  methods: {
+    // AttackObj(sourceIps, targetIp, level) {
+    //   // this.sourceIps = [];
+    //   // sourceIps.forEach((item) => {
+    //   //   this.sourceIps.push(item);
+    //   // });
+    //   this.sourceIps = [...sourceIps];
+    //   this.targetIp = targetIp;
+    //   this.level = level;
+    // },
+    getDDosstaticfun() {
+      var start = "1606801880709";
+      var end = Date.now();
+
+      this.DDOSdata = [];
+      console.log(this.DDOSdata);
+      getDDosstatic(start, end)
+        .then((res) => {
+          console.log(res.data.data);
+          // console.log(JSON.parse(JSON.stringify(res.data.data)));
+          // if (res) {
+          this.DDOSdata = JSON.parse(JSON.stringify(res.data.data));
+          // for (var i = 0; i < this.DDOSdata.length; i++) {
+          //   console.log(this.DDOSdata[i]);
+          // }
+          // this.DDOSdata.forEach((item) => {
+          //   console.log(item);
+          // });
+          // }
+          // console.log(temp);
+          // this.DDOSdata = JSON.parse(JSON.stringify(res.data.data));
+          // console.log(this.DDOSdata);
+          // if (res.data.data !== undefined)
+          // console.log(temp);
+          // console.log(this.DDOSdata);
+          this.setDatafun();
+        })
+        .catch((err) => {
+          console.log(err);
+        });
+      console.log("ok");
+    },
+    // getXYfromIPfun(ip) {
+    //   // getXY(ip)
+    //   getXYfromIP(ip)
+    //     .then((res) => {
+    //       console.log(res);
+    //     })
+    //     .catch((err) => {
+    //       console.log(err);
+    //     });
+    // },
+    // getXYfromIPfun(ip) {
+    //   var arr = ip.split(".");
+    //   // console.log(arr[arr.length - 1]);
+    // },
+    ramdomXY(x, y) {
+      return [
+        x + (Math.random() * 2 - 1) * 10,
+        y + (Math.random() * 2 - 1) * 10,
+      ];
+    },
+    setDatafun() {
+      // this.DDOSdata = [...temp];
+      // console.log(this.DDOSdata);
+      var str = [
+        [104.07, 30.67],
+        [116.2, 39.56],
+      ];
+      // var obj = [];
+
+      var linenum = 0;
+      for (let i = 0; linenum <= 10 && i < this.DDOSdata.length; i++) {
+        const item = this.DDOSdata[i];
+        // console.log(item);
+        for (let j = 0; j < item.sourceIps.length; j++) {
+          var myLine = new this.createMyline();
+          myLine.target = item.targetIp;
+          myLine.source = item.sourceIps[j];
+          myLine.level = item.level;
+          myLine.index = linenum++;
+          myLine.start = this.ramdomXY(str[0][0], str[0][1]);
+          myLine.end = this.ramdomXY(str[1][0], str[1][1]);
+          this.Location.push(myLine.start);
+          this.Location.push(myLine.end);
+          // console.log(myLine);
+          this.MyLineGroup.push(myLine);
+          // 画线
+          this.drawLine(
+            myLine.start[0],
+            myLine.start[1],
+            myLine.end[0],
+            myLine.end[1],
+            myLine.index
+          );
+          this.addPoinLocation(myLine.start, myLine.index, true);
+          this.addPoinLocation(myLine.end, myLine.index, false);
+        }
+      }
+      // console.log(this.MyLineGroup);
+      // console.log(this.MyLineGroup[1]);
+      // Object.assign({}, this.MyLineGroup);
+    },
+    addPoinLocation(location, index, start) {
+      var str = "";
+      if (start) str = "start";
+      else str = "end";
+      let pos = this.getPosition(location[0], location[1], this.poinRadius);
+      // let mesh = new THREE.Mesh(sphere, material);
+      let littleArcTube = new THREE.TorusGeometry(0.5, 0.01, 16, 20);
+      let littleArcTube1 = new THREE.TorusGeometry(0.35, 0.01, 16, 20);
+      let littleArcTube2 = new THREE.TorusGeometry(0.2, 0.01, 16, 20);
+
+      // const materialTube = new THREE.MeshBasicMaterial({ color: 0x07def7 });
+      const littleArcmaterialTube = new THREE.MeshLambertMaterial({
+        emissive: 0x07def7,
+        transparent: true,
+        emissiveIntensity: 2.1,
+        // emissiveMap: new THREE.TextureLoader().load("static/light.png"),
+        opacity: 0.1,
+      });
+      const littleArcmaterialTube1 = new THREE.MeshLambertMaterial({
+        emissive: 0x07def7,
+        transparent: true,
+        emissiveIntensity: 2.1,
+        // emissiveMap: new THREE.TextureLoader().load("static/light.png"),
+        opacity: 0.4,
+      });
+      const littleArcmaterialTube2 = new THREE.MeshLambertMaterial({
+        emissive: 0x07def7,
+        transparent: true,
+        emissiveIntensity: 2.1,
+        // emissiveMap: new THREE.TextureLoader().load("static/light.png"),
+        opacity: 1,
+      });
+      const littleArcmeshTube = new THREE.Mesh(
+        littleArcTube,
+        littleArcmaterialTube
+      );
+      const littleArcmeshTube1 = new THREE.Mesh(
+        littleArcTube1,
+        littleArcmaterialTube1
+      );
+      const littleArcmeshTube2 = new THREE.Mesh(
+        littleArcTube2,
+        littleArcmaterialTube2
+      );
+      let spherical = new THREE.Spherical();
+      spherical.setFromCartesianCoords(pos.x, pos.y, pos.z);
+
+      const transparent_geometry = new THREE.TorusGeometry(0.1, 2, 16, 100);
+      const transparent_material = new THREE.MeshBasicMaterial({
+        color: 0xffff00,
+        transparent: true,
+        opacity: 0,
+      });
+      const transparent_circle = new THREE.Mesh(
+        transparent_geometry,
+        transparent_material
+      );
+
+      littleArcmeshTube.position.set(pos.x, pos.y, pos.z);
+      littleArcmeshTube1.position.set(pos.x, pos.y, pos.z);
+      littleArcmeshTube2.position.set(pos.x, pos.y, pos.z);
+      transparent_circle.position.set(pos.x, pos.y, pos.z);
+      // pos = pos.normalize();
+      // littleArcmeshTube.position.set(pos.x, pos.y, pos.z);
+
+      littleArcmeshTube1.lookAt(0, 0, 0);
+      littleArcmeshTube2.lookAt(0, 0, 0);
+      littleArcmeshTube.lookAt(0, 0, 0);
+      transparent_circle.lookAt(0, 0, 0);
+
+      littleArcmeshTube1.name = str + "ring1" + index;
+      littleArcmeshTube2.name = str + "ring2" + index;
+      littleArcmeshTube.name = str + "ring" + index;
+      transparent_circle.name = str + "transparent_circle" + index;
+
+      // littleArcmeshTube.rotateX(spherical.phi - Math.PI / 2);
+      // littleArcmeshTube.rotateZ(Math.PI / 4);
+      // littleArcmeshTube.rotateY(spherical.theta);
+      // littleArcmeshTube.rotateZ(spherical.theta);
+
+      this.clickgroup.add(littleArcmeshTube);
+      this.clickgroup.add(littleArcmeshTube2);
+      this.clickgroup.add(littleArcmeshTube1);
+      this.clickgroup.add(transparent_circle);
+      // console.log(this.clickgroup);
+
+      // this.group.add(littleArcmeshTube);
+      // this.group.add(littleArcmeshTube2);
+      // this.group.add(littleArcmeshTube1);
+
+      let sphere2 = new THREE.SphereBufferGeometry(0.01, 32, 32);
+      let material2 = new THREE.MeshPhongMaterial({
+        color: new THREE.Color("#ffffff"),
+      });
+      let mesh2 = new THREE.Mesh(sphere2, material2);
+      // mesh.position.set(pos.x, pos.y, pos.z);
+      mesh2.position.set(pos.x, pos.y, pos.z);
+      mesh2.name = "ball" + index;
+      this.clickgroup.add(mesh2);
+
+      this.MyLineGroup[index].ball.push(str + "ball" + index);
+      this.MyLineGroup[index].ring.push(str + "ring" + index);
+      this.MyLineGroup[index].ring.push(str + "ring2" + index);
+      this.MyLineGroup[index].ring.push(str + "ring3" + index);
+      this.MyLineGroup[index].ring.push(str + "transparent_circle" + index);
+    },
+    init() {
+      // 编组
+      this.group = new THREE.Group();
+      this.groupBall = new THREE.Group();
+      this.clickgroup = new THREE.Group();
+
+      //声明一个时钟对象
+      this.clock = new THREE.Clock();
+
+      this.earthcontainer = document.getElementById("earthChart");
+
+      this.scene = new THREE.Scene();
+
+      this.camera = new THREE.PerspectiveCamera(
+        75,
+        this.earthcontainer.clientWidth / this.earthcontainer.clientHeight,
+        0.1,
+        1000
+      );
+
+      // 相机位置设置
+
+      // this.camera.position.z = 30;
+      this.camera.position.set(0, 0, 80);
+      // this.camera.set(10, 10, 10);
+      this.camera.lookAt(new THREE.Vector3(0, 0, 0));
+      // this.camera.lookAt(new THREE.Vector3(0, 0, 0));
+      this.scene.add(this.camera);
+
+      var all = new THREE.AmbientLight(0x393939, 0.8);
+      var light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(-11, 3, 1);
+      var sun = new THREE.SpotLight(0x393939, 2.5);
+      sun.position.set(-15, 10, 21);
+
+      this.scene.add(all);
+      this.scene.add(sun);
+      this.scene.add(light);
+
+      // Earth terrain
+      // 纹理 地球 隆起凸块  高光反射
+      var earth_texture = new THREE.TextureLoader().load("static/earth.jpg");
+      var earth_bump = new THREE.TextureLoader().load("static/earth_bump.jpg");
+      var earth_specular = new THREE.TextureLoader().load(
+        "static/earth_spec.png"
+      );
+      // console.log(earth_texture);
+      // 球体 半径 经纬切片数
+      var earth_geometry = new THREE.SphereGeometry(this.radius, 100, 100);
+      // var earth_material = new THREE.MeshNormalMaterial();
+      // 一种用于具有镜面高光的光泽表面的材质。 参数为对象
+      var earth_material = new THREE.MeshPhongMaterial({
+        shininess: 30,
+        bumpScale: 0.6,
+        map: earth_texture,
+        bumpMap: earth_bump,
+        specularMap: earth_specular,
+      });
+
+      this.earth = new THREE.Mesh(earth_geometry, earth_material);
+      this.earth.name = "earth";
+      this.earth.rotation.y = -(Math.PI / 2).toFixed(2);
+      this.scene.add(this.earth);
+
+      var cloud_geometry = new THREE.SphereGeometry(this.radius + 0.5, 24, 24);
+
+      this.cloud = new THREE.Mesh(
+        cloud_geometry,
+        new THREE.MeshPhongMaterial({
+          // map: new THREE.TextureLoader().load("static/earth_cloud.png"),
+          map: new THREE.TextureLoader().load("static/earth_cloud.png"),
+          opacity: 0.4,
+          transparent: true,
+          // blending: 'AdditiveBlending'
+        })
+      );
+      this.cloud.name = "cloud";
+      this.scene.add(this.cloud);
+
+      // 加地球光辉
+      // 顶点着色器
+      let vertexShader_glow = [
+        "varying vec3   vVertexWorldPosition;",
+        "varying vec3  vVertexNormal;",
+        "varying vec4  vFragColor;",
+
+        "void main(){",
+        "  vVertexNormal  = normalize(normalMatrix * normal);", //将法线转换到视图坐标系中
+        "  vVertexWorldPosition   = (modelMatrix * vec4(position, 1.0)).xyz;", //将顶点转换到世界坐标系中
+        "  // set gl_Position",
+        "  gl_Position    = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+        "}",
+      ].join("\n");
+      // 辉光片元着色器
+      // var fragmentShader1 = [
+      //   "uniform vec3	glowColor;",
+      //   "uniform float	coeficient;",
+      //   "uniform float	power;",
+
+      //   "varying vec3	vVertexNormal;",
+      //   "varying vec3	vVertexWorldPosition;",
+
+      //   "varying vec4	vFragColor;",
+
+      //   "void main(){",
+      //   "	vec3 worldCameraToVertex= vVertexWorldPosition - cameraPosition;", //世界坐标系中从相机位置到顶点位置的距离
+      //   "	vec3 viewCameraToVertex	= (viewMatrix * vec4(worldCameraToVertex, 0.0)).xyz;", //视图坐标系中从相机位置到顶点位置的距离
+      //   "	viewCameraToVertex	= normalize(viewCameraToVertex);", //规一化
+      //   "	float intensity		= pow(coeficient + dot(vVertexNormal, viewCameraToVertex), power);",
+      //   "	gl_FragColor		= vec4(glowColor, intensity);",
+      //   "}", //vVertexNormal视图坐标系中点的法向量
+      //   //viewCameraToVertex视图坐标系中点到摄像机的距离向量
+      //   //dot点乘得到它们的夹角的cos值
+      //   //从中心向外面角度越来越小（从钝角到锐角）从cos函数也可以知道这个值由负变正，不透明度最终从低到高
+      // ].join("\n");
+
+      var fragmentShader_glow = [
+        // "uniform vec3	glowColor;",
+        // "uniform float	coeficient;",
+        // "varying vec3	vVertexNormal;",
+        // "varying vec3	vVertexWorldPosition;",
+        // "void main(){",
+        // "	vec3 worldVertexToCamera= cameraPosition - vVertexWorldPosition;",
+        // "	vec3 viewCameraToVertex	= (viewMatrix * vec4(worldVertexToCamera, 0.0)).xyz;",
+        // "	viewCameraToVertex	= normalize(viewCameraToVertex);",
+        // "	float intensity		= coeficient + dot(vVertexNormal, viewCameraToVertex);",
+        // "	if(intensity > 0.29 && intensity < 0.8){ intensity = 0.5;}",
+        // "	if(intensity > 0.4){ intensity = 0.0;}",
+        // "	gl_FragColor = vec4(glowColor, intensity);",
+        // "}",
+        "uniform vec3	glowColor;",
+        "uniform float	coeficient;",
+        "uniform float	power;",
+
+        "varying vec3	vVertexNormal;",
+        "varying vec3	vVertexWorldPosition;",
+        "varying vec4	vFragColor;",
+
+        "void main(){",
+        "	vec3 worldVertexToCamera= cameraPosition - vVertexWorldPosition;", //世界坐标系中顶点位置到相机位置到的距离
+        "	vec3 viewCameraToVertex	= (viewMatrix * vec4(worldVertexToCamera, 0.0)).xyz;", //视图坐标系中从相机位置到顶点位置的距离
+        "	viewCameraToVertex	= normalize(viewCameraToVertex);", //规一化
+        "	float intensity		= coeficient + dot(vVertexNormal, viewCameraToVertex);",
+        "	if(intensity > 0.3){ intensity = 0.0;}",
+        "	gl_FragColor		= vec4(glowColor, intensity);",
+        "}",
+        //vVertexNormal视图坐标系中点的法向量
+        //viewCameraToVertex视图坐标系中点到摄像机的距离向量
+        //dot点乘得到它们的夹角的cos值
+        //从中心向外面角度越来越大（从锐角到钝角）从cos函数也可以知道这个值由负变正，不透明度最终从高到低
+      ].join("\n");
+      let material_glow = new THREE.ShaderMaterial({
+        uniforms: {
+          coeficient: {
+            type: "f",
+            value: 0.0,
+          },
+          power: {
+            type: "f",
+            value: 2,
+          },
+          glowColor: {
+            type: "c",
+            value: new THREE.Color("#00e7ff"),
+          },
+        },
+        vertexShader: vertexShader_glow,
+        fragmentShader: fragmentShader_glow,
+        blending: THREE.NormalBlending,
+        transparent: true,
+      });
+      var sphere_glow = new THREE.SphereGeometry(this.radius + 1.45, 100, 100);
+      // var material_glow2 = new THREE.MeshPhongMaterial({
+      //   color: new THREE.Color("blue"),
+      //   transparent: true,
+      //   opacity: 0.5,
+      // });
+      var mesh_glow = new THREE.Mesh(sphere_glow, material_glow);
+      this.group.add(mesh_glow);
+
+      // renderer
+      // 构造渲染器对象 canvas包含alpha (透明度)
+      this.renderer = new THREE.WebGLRenderer({
+        canvas: document.getElementById("earthCanvas"),
+        alpha: true,
+      });
+
+      this.renderer.setSize(
+        this.earthcontainer.clientWidth,
+        this.earthcontainer.clientHeight
+      );
+
+      this.renderer.domElement.addEventListener("click", this.onMouseClick);
+      this.renderer.domElement.addEventListener("mousemove", this.onMouseMove);
+
+      // 初始化控制器
+      this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+      // 你能够将相机向内移动多少（仅适用于PerspectiveCamera），其默认值为0。
+      // this.controls.minDistance = 0;
+      // // 你能够将相机向外移动多少（仅适用于PerspectiveCamera），其默认值为Infinity。
+      // this.controls.maxDistance = 0;
+      // 旋转的速度，其默认值为1。
+      this.controls.rotateSpeed = 0.5;
+      //       将其设置为true以启用阻尼（惯性），这将给控制器带来重量感。默认值为false。
+      // 请注意，如果该值被启用，你将必须在你的动画循环里调用.update()。
+      this.controls.enableDamping = true;
+      // 启用或禁用摄像机平移，默认为true。
+      this.controls.enablePan = false;
+    },
+    // 鼠标移动
+    onMouseMove(event) {
+      var mybox = document.getElementsByClassName("tipbox")[0];
+      if (mybox.style.display == "block") mybox.style.display = "none";
+    },
+    // 鼠标点击事件
+    onMouseClick(event) {
+      var mycanvas = document.getElementById("earthCanvas");
+      event.preventDefault();
+      var raycaster = new THREE.Raycaster();
+      var mouse = new THREE.Vector2();
+      // 获取canvas元素的边界框来计算当前点击的位置相对于canvas的坐标 当前点击的位置
+      let getBoundingClientRect = mycanvas.getBoundingClientRect();
+
+      // 屏幕坐标转标准设备坐标
+      mouse.x =
+        ((event.clientX - getBoundingClientRect.left) / mycanvas.offsetWidth) *
+          2 -
+        1; // 标准设备横坐标
+      mouse.y =
+        -((event.clientY - getBoundingClientRect.top) / mycanvas.offsetHeight) *
+          2 +
+        1; // 标准设备纵坐标
+      // console.log(mouse.x);
+      // console.log(mouse.y);
+      raycaster.setFromCamera(mouse, this.camera);
+      var intersects = raycaster.intersectObjects(this.clickgroup.children);
+      // if (intersects.length > 0) {
+      //   console.log("click");
+      // }
+      // console.log(intersects);
+      // console.log(this.MyLineGroup);
+      if (intersects.length > 0) {
+        console.log(intersects[0].object.name);
+        var secFlag = -1;
+        var j = 0;
+        for (j = 0; secFlag < 0 && j < this.MyLineGroup.length; j++) {
+          if (
+            this.MyLineGroup[j].ring.indexOf(intersects[0].object.name) != -1 ||
+            this.MyLineGroup[j].ball.indexOf(intersects[0].object.name) != -1 ||
+            this.MyLineGroup[j].tube == intersects[0].object.name ||
+            this.MyLineGroup[j].trans_tube == intersects[0].object.name
+          )
+            secFlag = j;
+        }
+        if (secFlag >= 0) {
+          var mybox = document.getElementsByClassName("tipbox")[0];
+          // console.log(document.getElementsByClassName("tipbox"));
+          var parent = document.getElementById("earthChart");
+          var offset = parent.getBoundingClientRect();
+          mybox.innerText = `sourceIP:${this.MyLineGroup[secFlag].source} targetIP:${this.MyLineGroup[secFlag].target}  level:${this.MyLineGroup[secFlag].level}`;
+          mybox.style.display = "block";
+          mybox.style.left = event.clientX - offset.left + "px";
+          mybox.style.top = event.clientY - offset.top + "px";
+          // console.log(event);
+          // console.log(mybox.style);
+          // console.log(offset);
+
+          //  .diplay = "block";
+          //   document.getElementsByClassName(
+          //     "tipbox"
+          //   ).innerText = this.MyLineGroup[j];
+        }
+      }
+
+      this.render();
+    },
+
+    // // 获取贝塞尔控制点
+    getBezierPoint(v1, v2) {
+      var angle = v1.angleTo(v2);
+      let vtop = v1.clone().add(v2);
+      vtop = vtop.normalize().multiplyScalar(this.poinRadius);
+      let n;
+      if (angle <= 1) {
+        n = (this.radius / 5) * angle;
+      } else if (angle > 1 && angle < 2) {
+        n = (this.radius / 5) * Math.pow(angle, 2);
+      } else {
+        n = (this.radius / 5) * Math.pow(angle, 1.5);
+      }
+      let v3 = new THREE.Vector3();
+      let v4 = new THREE.Vector3();
+      // 将该向量与所传入的标量s进行相乘。
+      v3 = v1
+        .clone()
+        .add(vtop)
+        .normalize()
+        .multiplyScalar(this.poinRadius + n);
+      v4 = v2
+        .clone()
+        .add(vtop)
+        .normalize()
+        .multiplyScalar(this.poinRadius + n);
+
+      return {
+        v3: v3,
+        v4: v4,
+      };
+    },
+
+    //  求的中点
+    getVCenter(v1, v2) {
+      let v = v1.add(v2); //将传入的向量v和这个向量相加。
+      // 将该向量除以标量s。
+      return v.divideScalar(2);
+    },
+    // 计算V1，V2向量固定长度的点
+    getLenVcetor(v1, v2, len) {
+      // 计算该向量到所传入的v间的距离。
+      let v1v2Len = v1.distanceTo(v2);
+      // 两个向量之间的线性插值。按照数字t在from到to之间插值。
+      // v1和v2之间线性插值 返回v1
+      return v1.lerp(v2, len / v1v2Len);
+    },
+    // 经纬度转化为坐标
+    getPosition(longitude, latitude, radius) {
+      // 经度，纬度转换为坐标
+      let lg = THREE.Math.degToRad(longitude);
+      let lt = THREE.Math.degToRad(latitude);
+      // 获取x，y，z坐标
+      let temp = radius * Math.cos(lt);
+      let x = temp * Math.sin(lg);
+      let y = radius * Math.sin(lt);
+      let z = temp * Math.cos(lg);
+      return new THREE.Vector3(x, y, z);
+    },
+    createLineMaterial() {
+      var uniforms = {
+        time: { type: "f", value: 1.0 },
+        number: { type: "f", value: 1.0 },
+        speed: { type: "f", value: 0.8 },
+        length: { type: "f", value: 0.3 },
+        size: { type: "f", value: 2.0 },
+        color: {
+          type: "v3",
+          value: new THREE.Vector3(0.52941, 0.80784, 0.98039),
+        }, // 颜色此处以Vector3的方式传入分别为RBG值 都是0-1的范围
+      };
+
+      var material = new THREE.ShaderMaterial({
+        uniforms: uniforms,
+        vertexShader: `
+        varying vec2 vUv;
+        attribute float percent;
+        varying float opacity;
+        uniform float time;
+        uniform float number;
+        uniform float speed;
+        uniform float length;
+        uniform float size;
+
+        void main() {
+    float l = clamp(1.0 - length, 0.0, 1.0);
+
+    // 计算公式
+    gl_PointSize = clamp(fract(percent * number + l - time * number * speed) - l, 0.0, 1.0) * size * (1.0 / length);
+
+    opacity = gl_PointSize / size; // 供片元着色器使用，可自行修改以控制飞线拖尾的形状
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`,
+        fragmentShader: `
+        varying float opacity;
+        uniform vec3 color;
+
+        void main(){
+        if(opacity <=0.2){
+            discard;
+        }
+        gl_FragColor = vec4(color,1.0);
+    }`,
+        transparent: true,
+      });
+
+      return material;
+    },
+    // 构造一个类
+    createMyline() {
+      this.start = [];
+      this.end = [];
+      this.ring = [];
+      this.ball = [];
+      this.tube = "";
+      this.source = "";
+      this.target = "";
+      this.level = "";
+      //管道曲线的适配
+      this.trans_tube = "";
+      this.index = null;
+    },
+    // drawLine(longitude, latitude, longitude2, latitude2,index) {
+    drawLine(longitude, latitude, longitude2, latitude2, index) {
+      // var myLine = new this.createMyline();
+      // myLine.start = [longitude, latitude];
+      // myLine.end = [longitude2, latitude2];
+      // // console.log(index);
+      // myLine.index = index;
+      let v1 = this.getPosition(longitude, latitude, this.poinRadius);
+      let v2 = this.getPosition(longitude2, latitude2, this.poinRadius);
+      let { v3, v4 } = this.getBezierPoint(v1, v2);
+      // console.log(v1, v2, v3, v4);
+      // 三维二次贝赛尔曲线
+      let curve = new THREE.CubicBezierCurve3(v1, v3, v4, v2);
+
+      // 管道
+      const geometryTube = new THREE.TubeGeometry(curve, 64, 0.05, 8, false);
+      // const materialTube = new THREE.MeshBasicMaterial({ color: 0x07def7 });
+      const materialTube = new THREE.MeshLambertMaterial({
+        emissive: 0xffffff,
+        transparent: true,
+        emissiveIntensity: 2.1,
+        // emissiveMap: new THREE.TextureLoader().load("static/light.png"),
+        opacity: 0.6,
+      });
+      const meshTube = new THREE.Mesh(geometryTube, materialTube);
+      const trans_geometryTube = new THREE.TubeGeometry(
+        curve,
+        64,
+        0.2,
+        8,
+        false
+      );
+      const trans_materialTube = new THREE.MeshLambertMaterial({
+        emissive: 0x000000,
+        transparent: true,
+
+        // emissiveMap: new THREE.TextureLoader().load("static/light.png"),
+        opacity: 0,
+      });
+      const trans_meshTube = new THREE.Mesh(
+        trans_geometryTube,
+        trans_materialTube
+      );
+
+      meshTube.name = "tubu" + index;
+      trans_meshTube.name = "trans_tubu" + index;
+      this.MyLineGroup[index].tube = "tubu" + index;
+      this.MyLineGroup[index].trans_tube = "trans_tubu" + index;
+
+      // console.log(this.MyLineGroup);
+      this.clickgroup.add(meshTube);
+      // this.clickgroup.add(trans_meshTube);
+      // this.group.add(meshTube);
+
+      const Flyline = curve.getPoints(500);
+      var geometryFly = new THREE.BufferGeometry().setFromPoints(Flyline);
+      let length = Flyline.length;
+      var percents = new Float32Array(length);
+      for (let i = 0; i < Flyline.length; i += 1) {
+        percents[i] = i / length;
+      }
+      geometryFly.setAttribute(
+        "percent",
+        new THREE.BufferAttribute(percents, 1)
+      );
+      var materialFly = this.createLineMaterial();
+      var flyLine = new THREE.Points(geometryFly, materialFly);
+
+      this.group.add(flyLine);
+      this.linegroup.push(flyLine);
+      //  贝塞尔曲线上的点集 画好一条线
+      // this.sport(curvePoints, index);
+      // this.drawSportPoint(curvePoints, index);
+      // this.inputAnimate();
+    },
+
+    render() {
+      this.group.add(this.clickgroup);
+      this.scene.add(this.group);
+
+      this.renderer.render(this.scene, this.camera);
+    },
+    animate() {
+      // 请求浏览器执行下一帧动画。
+      requestAnimationFrame(this.animate);
+
+      // 该对象用于跟踪时间
+      // 获取距离上一次调用getDelta经过的秒数
+      let time = this.clock.getDelta();
+      // // console.log(time);
+
+      // // 旋转角度
+      this.earth.rotateY((time * Math.PI) / 15);
+      this.cloud.rotateY((time * Math.PI) / 13);
+      // this.cloud.rotateY((time * Math.PI) / 8);
+      this.group.rotateY((time * Math.PI) / 15);
+
+      if (this.linegroup.length) {
+        for (var i = 0; i < this.linegroup.length; i++) {
+          var flyline = this.linegroup[i];
+          flyline.material.uniforms.time.value += 0.01;
+          this.group.add(flyline);
+        }
+      }
+      // // 渲染
+      this.render();
+      this.controls.update();
+    },
+  },
+  mounted() {
+    this.init();
+    this.animate();
+    // this.render();
+  },
+};
+</script>
+
+<style scoped>
+#earthChart {
+  margin-top: -10px;
+  width: 850px;
+  height: 560px;
+  /* position: relative; */
+  /* border: 1px solid rebeccapurple; */
+
+  /* background-color: #fff; */
+  background-position: center center;
+  overflow: hidden;
+  background-size: cover;
+}
+/* #earthCanvas {
+  border: 1px solid rebeccapurple;
+  background-color: pink;
+} */
+.tipbox {
+  background: url("../../assets/图标_16.png") no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+  /* opacity: 0.4; */
+  /* border: 1px solid black; */
+  /* background-color: #fff; */
+  color: #05aed9;
+  position: absolute;
+  text-align: center;
+  line-height: 30px;
+  font-size: 13px;
+  width: 350px;
+  height: 30px;
+  /* position: relative; */
+  top: 0;
+  left: 0;
+  z-index: 10;
+  display: none;
+}
+</style>
